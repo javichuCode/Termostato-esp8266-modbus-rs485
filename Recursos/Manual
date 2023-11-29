@@ -1,0 +1,37 @@
+1 Introducción
+En este proyecto montamos un termostato modbus para un fancoil de 3 velocidades y sistema de  2 tubos. Dicho termostato tiene la capacidad de auto-apagado por sensor pir, regulación de la temperatura en modo Frio y Calor, regulación de la velocidad del ventilador. Es gestionado por modbus en un sistema SCADA y tiene la capacidad de actualizaciones vía OTA.
+
+
+2 Pines de Entrada-Salida:
+
+GPIO
+DESCRIPCIÓN
+0
+Restaurar valores de fabrica.
+2
+linea de bus para las sondas de temperatura.
+4
+Tx_Rx a pin RE-DE  del adaptador RS485.
+5
+Rx a pin RO del adaptador RS485.
+12
+Rele potencia 3.
+13
+Relé de válvula.
+14
+Rele potencia 2.
+15
+Rx a pin DI del adaptador RS485.
+16
+Rele potencia 1.
+A0
+Entrada analógica.
+
+3 Operación
+En esta sección, aprenderás cómo utilizar y operar el proyecto de manera efectiva. Asegúrate de seguir estas instrucciones cuidadosamente para obtener los mejores resultados.
+Encendiendo el Proyecto
+    1. Asegúrate de que todos los cables estén conectados correctamente según el diagrama de conexión. El primer arranque el id modbus es 50. Para cambiarlo accedemos al Holdin Register 102 y lo cambiamos.
+    2. Una vez cambiado ya podemos leer y escribir en los registros.
+Uso y Manejo
+1. Al encender el fancoil (coil xxx) podemos cambiar la consigna de temperatura, la velocidad del ventilador y el modo ( Frio-Calor). La función de apagado automático apagara el Fancoil a los 15 minutos de no detectar presencia el sensor.
+2.  Para actualizar el skecht solo ponemos el registro activación wifi a on y podremos conectar por wifi para subir el binario.
