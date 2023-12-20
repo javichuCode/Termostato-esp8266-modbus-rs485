@@ -1,5 +1,4 @@
-
-
+#include <Arduino.h>
 /*
 Programa FANCOIL Modbus Wifi
 Patxi Tortajada.
@@ -7,26 +6,26 @@ tortajadajavier@gmail.com
 FISABIO FOM
 2023
 */
-// Cambiar ssid_AP y SLAVE_ID 
+
 #include <EEPROM.h> 
-#include <Arduino.h>
 #include <DallasTemperature.h>
 #include <OneWire.h>
 #include <ModbusRTU.h>
 #include <SoftwareSerial.h>
 #include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <AsyncElegantOTA.h>
-#include "ESPAsyncWebServer.h"
-//#define SLAVE_ID 50
 
-// CONFIGURACION  sensor temperatura ds18b20 /////////////////////////////////////////////////////////////////////
-#define ONE_WIRE_BUS 2 // GPIO 2 del ESP8266
-const char *ssid_AP = "Fancoil";
-const char *password_AP = "MiPassword";
+
+
+#define ONE_WIRE_BUS 2 
+const char *cadenaFija = "Fancoil_";
+const char *password_AP = "mipasword";
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
-// CONFIGURACION  sensor puerto serie RS485 /////////////////////////////////////////////////////////////////////
-SoftwareSerial S(5, 15);//(rxPin, txPin) we need one serial port for communicating with RS 485 to TTL adapter
+// CONFIGURACION  puerto serie RS485 /////////////////////////////////////////////////////////////////////
+SoftwareSerial S485(5, 15);//(rxPin, txPin) we need one serial port for communicating with RS 485 to TTL adapter
 
 ModbusRTU mb;
 AsyncWebServer server(80);
@@ -34,7 +33,8 @@ AsyncWebServer server(80);
 // Dependiendo del dispositivo utilizado tiene una correlación u otra de entradas y salidas
 // Se define el número de las Digital Inputs / ouputs correspondientes
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+int longitudCadena = strlen(cadenaFija) + 1;
+int numeroDigitos = 1; 
 int rele_valvula = 13;
 int rele_pot1 = 16;
 int rele_pot2 = 14;
@@ -59,13 +59,12 @@ int entrada;
 
 
 
-uint16_t vers=105; //vers 10 es igual a 1.0
+uint16_t vers=106; //vers 10 es igual a 1.0
 uint16_t potencia=1;
 uint16_t toff = 0;
 
 boolean estado_marcha = false; //coil 0 
 boolean estado_modo = false;    //coil 1
-boolean estado_orden = false;
 boolean estado_ir1 = false;
 boolean estadoValvula = false;
 boolean detectada_presencia = false;
@@ -89,7 +88,7 @@ String cadenaWeb="";
 
 // Prototipos de funciones ///////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//bool orden(float, float, float, bool);
+
 void comprobar_temperatura(void);
 void configuracion(void);
 void configuracionGPIO(void);
@@ -134,17 +133,16 @@ void loop(void){
 //##########################################################################################################################
 
 // Funciones ///////////////////////////////////////////////////////////////////////////////////////
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
   
 void comprobar_temperatura(void){
 
-  // Lee las sondas y las ordena como T. Impulsión y T. Ambiente //////////////////////////////////
   sensors.requestTemperatures();  
     temperatura_comprobacion1 = sensors.getTempCByIndex(0);//Se obtiene la temperatura en °C del sensor 0
     temperatura_comprobacion2 = sensors.getTempCByIndex(1);//Se obtiene la temperatura en °C del sensor 0
       switch (estado_modo) {
       case false:
-          if (temperatura_comprobacion1 != -127 && temperatura_comprobacion2 != -127){
+          if ((temperatura_comprobacion1 != -127)&(temperatura_comprobacion2 != -127)){
             if(temperatura_comprobacion1>temperatura_comprobacion2){
               temperaturaEntrada = temperatura_comprobacion1;
               temperaturaSalida = temperatura_comprobacion2;
@@ -156,7 +154,7 @@ void comprobar_temperatura(void){
   }
           break;
       case true:
-             if (temperatura_comprobacion2 != -127 && temperatura_comprobacion2 != -127){
+             if ((temperatura_comprobacion2 != -127)&(temperatura_comprobacion2 != -127)){
                 if(temperatura_comprobacion1<temperatura_comprobacion2){
                   temperaturaEntrada = temperatura_comprobacion1;
                   temperaturaSalida = temperatura_comprobacion2;
@@ -170,41 +168,37 @@ void comprobar_temperatura(void){
       }
 }
 
-
-//Da la orden a la valvula si la temperatura sale del rango de histeresis.
 void gestionValvula(){
-    
+   
   switch (estado_modo) {
     case true:// MODO CALOR
         if (temperaturaEntrada < (consigna - histeresis)){
-            // Serial.println("Se pone en marcha el FANCOIL modo calor.");  
-            bucle=1;
+           
             digitalWrite(rele_valvula, HIGH);      
-            controlPotencia();
+            
         }
         if (temperaturaEntrada > (consigna + histeresis)){ 
-    //Serial.println("Se ha cumplido la temperatura consigna objetivo con el modo calor.");       
-          bucle=2;
+       
+          
           Alarmar=true;
           digitalWrite(rele_valvula, LOW);      
-          controlPotencia();            
+                      
         }
         break;
     case false:
         if (temperaturaEntrada > (consigna + histeresis))  {
-     // Serial.println("Se pone en marcha el FANCOIL modo frio.");    
-          bucle=3;
+    
           digitalWrite(rele_valvula, HIGH);      
-          controlPotencia();   
+             
        } 
        
        if (temperaturaEntrada < (consigna - histeresis)){
-          bucle=4;
+          
           Alarmar=true;
           digitalWrite(rele_valvula, LOW);      
-          controlPotencia();
+          
        }
-       break;//Serial.println("Se ha cumplido la temperatura consigna objetivo con el modo frio.");
+       break;
            
    
   }  
@@ -217,16 +211,18 @@ void configuracion(void){
   EEPROM.begin(4);  
 }
 
-////////     Activa o desactiva la wifi para actualizaciones      /////////////
+
 void gestionWifi(){
-  
-    if (activarWifi&!activarWifiFlag){          
+ 
+        if (activarWifi&!activarWifiFlag){          
+          
           WiFi.mode(WIFI_AP);
+          String ssid_AP = cadenaFija + String(eepromId);
           WiFi.softAP(ssid_AP, password_AP, 1, false, 1);
           server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
           request->send(200, "text/plain", (cadenaWeb));
           });
-          AsyncElegantOTA.begin(&server);    // Start ElegantOTA
+          AsyncElegantOTA.begin(&server);
           server.begin();
           Serial.println("HTTP server started");
           activarWifiFlag=true;
@@ -235,13 +231,13 @@ void gestionWifi(){
           
           WiFi.softAPdisconnect(false);
           activarWifiFlag=false;          
-          } 
+          }
 
   
   }
 
   
-/////////         Se añaden los registros Modbus       ////////////////  
+
 void configuracionModbus(void){
      
   EEPROM.get(0, eepromId);
@@ -257,11 +253,11 @@ void configuracionModbus(void){
    slaveId=eepromId; 
     }
    
-  S.begin(9600, SWSERIAL_8N1);
-  mb.begin(&S,Tx_Rx); // RE/DE connected to PIN 4 of ESP8266  
+  S485.begin(9600, SWSERIAL_8N1);
+  mb.begin(&S485,Tx_Rx); // RE/DE   
   mb.slave(slaveId);
   mb.addHreg(100,26); //Registro tempConsigna
-  mb.addHreg(101,potencia); //Registro potencia
+  mb.addHreg(101,potencia); 
   mb.addHreg(102,eepromId); //Registro Cambio de Id 
        
   mb.addIreg(0); //Registro Temperatura Ambiente
@@ -271,15 +267,13 @@ void configuracionModbus(void){
   
   mb.addCoil(100); //Estado Marcha
   mb.addCoil(101); //Estado Modo
-  mb.addCoil(102, false); // Activacion wifi
-  
-  mb.addIsts(100);//Alarma
-  mb.addIsts(101);//Valvula  
+  mb.addCoil(102); // Activacion wifi
+    
+  mb.addIsts(100);//Alarma 
   
 }
 
 
-// Se configuran las salidas de los reles y se inicializan a LOW.
 void configuracionGPIO(void){
   
   pinMode(rele_valvula, OUTPUT);
@@ -296,7 +290,6 @@ void configuracionGPIO(void){
 }
 
 
-   ////////////////     Control de la potencia del ventilador     ////////////////
 void controlPotencia(){
     switch (potencia) {
       case 1:
@@ -317,7 +310,6 @@ void controlPotencia(){
       }
 }
 
-////       Da una alarma si no hay salto térmico.      /////////////
 void comprobarSalto(){   
   
    if (estado_modo){
@@ -332,9 +324,8 @@ void comprobarSalto(){
    
 }
 
-///       Actualiza e imprime por serie y web los valores cada 5 segundos.      /////////////
 void imprimirSerial(){
-  
+ 
     if (tImpresion<=millis()){
         imprimir=true;
       }
@@ -373,22 +364,21 @@ void imprimirSerial(){
         +"presencias_detectadas= " + String(presencias_detectadas)+"\n"     
         +"Tiempo desconexion= " + String(toff)+" minutos."+"\n"
         +"Alarma= " + String(alarma)+"\n"
-        +"version= " + String(version)+"\n"
-        +"Estado orden= " + String(estado_orden)+"\n"
+        +"version= " + String(version)+"\n"        
         +"Valvula= " + String(digitalRead(rele_valvula))+"\n"
         +"Ventilador marcha 1= " + String(digitalRead(rele_pot1))+"\n"        
-        +"Consigna - histeresis= " + String(consigna - histeresis)+"\n"
-        +"Consigna + histeresis= " + String(consigna + histeresis)+"\n"
-        +"Bucle= " + String(bucle)+"\n"                          
+        +"Ventilador marcha 2= " + String(digitalRead(rele_pot2))+"\n" 
+        +"Ventilador marcha 3= " + String(digitalRead(rele_pot3))+"\n" 
+        +"Voltaje= " + String(sensorValue)+"\n" 
+        +"Consigna + histeresis= " + String(consigna + histeresis)+"\n"                         
         +"Fin trama";
         } 
 
   
   }
 
-////////       Gestiona y actualiza los registros Modbus.      ////////////////////////////////
 void gestionValoresModbus(){
-  
+ 
      tempEntero1 = temperaturaEntrada*100.0;
      tempEntero2 = temperaturaSalida*100.0;
      estado_marcha=mb.Coil(100);     
@@ -402,19 +392,18 @@ void gestionValoresModbus(){
      mb.Ireg(2, toff); 
      mb.Ireg(3, tempEntero2);
      mb.Ists(100, alarma);
-     mb.Ists(101, estadoValvula=digitalRead(rele_valvula));
+     
+     
   } 
 
-////////////////            LOGICA DEL FANCOIL        /////////////////////////////////////
 void gestionFancoil(){
   
   if (estado_marcha == true){
-  ///// Arrancamos el Fancoil     
    gestionTemporizador();
-   gestionValvula();          
-   gestionTemporizadorAlarma(); /// gestion temporizador de alarma por salto termico  
-  }
-  else/// Estado marcha = false Apaga el Fancoil.
+   gestionValvula();
+   controlPotencia();          
+   gestionTemporizadorAlarma();
+  }else
   {
     Alarmar=true;
     digitalWrite(rele_valvula, LOW);    
@@ -429,17 +418,15 @@ void gestionFancoil(){
   }
   
   }
-
-////Inicializamos el temporizador a 15 minutos al detectar presencia.
+  ////Temporizador de autoapagado.
 void gestionTemporizador(){
     sensorValue = analogRead(analogInPin);    
-    
     if (sensorValue > 60){
     temporizador_final = millis() + (15 * 60000);//
     presencias_detectadas=presencias_detectadas+1;
     
  }
- ////Se detiene el Fancoil por no detectar presencia.
+ 
   if ((millis()>temporizador_final)&(temporizador_final>0)){
       estado_marcha=false;
       mb.Coil(100,estado_marcha) ;                
@@ -448,16 +435,15 @@ void gestionTemporizador(){
       toff =0;
       
     }
-    ////Actualizamos el valor del tiempo restante al apagado.
+    
     if (temporizador_final>0){
       toff = (temporizador_final - millis())/60000;
       }
   
   }
 
-// Accedemos a la función de alarma por salto termico a los 2 minutos de arrancar la valvula.
-void gestionTemporizadorAlarma(){
-  
+// Alarma por salto termico.
+void gestionTemporizadorAlarma(){  
   
   if (estadoValvula){    
       if (Alarmar){
@@ -471,11 +457,8 @@ void gestionTemporizadorAlarma(){
     }
     
   }
-
-// Desde esta función podemos cambiar el id modbus.    ///////////////
-void gestionId(){      
+  void gestionId(){      
     if(!digitalRead(resetId)){
-      Serial.println("Entro BUCLE ETAPA 1 CAMBIO ID A 50");
       modbusIdActual=50;
       }  
     if (modbusIdActual != eepromId){
@@ -488,8 +471,3 @@ void gestionId(){
       }
     
     }
-
-   
-    
-  
-  
